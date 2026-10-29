@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JAAGO — On-Device Vision Guard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Top bar -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <span class="brand-title">JAAGO</span>
+      <span id="topbar-live-pill" class="live-pill pill-cam-off" aria-label="Live monitoring status">
+        <span class="status-dot dot-cam-state" aria-hidden="true"></span><span class="status-icon" aria-hidden="true">⊘</span> CAMERA OFF
+      </span>
+
+      <!-- Demo mode toggle: clearly labelled "Demo mode — Simulated" -->
+      <div class="demo-toggle-group" id="demo-toggle-container">
+        <span id="demo-toggle-label" class="demo-toggle-title">Demo mode</span>
+        <button id="toggle-demo-mode" class="toggle-switch" type="button" role="switch" aria-checked="false" aria-label="Toggle Demo mode">
+          <span class="toggle-thumb"></span>
+        </button>
+        <span id="demo-badge" class="demo-badge hidden">SIMULATED</span>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <button id="btn-preshift" class="btn btn-secondary" type="button">Pre-shift Check</button>
+      <span id="session-timer" class="session-timer">00:00:00</span>
+      <button id="btn-reset-session" class="btn-text-sm hidden" type="button" title="Reset timeline (available when session stopped)">Reset</button>
+      <button id="btn-camera-toggle" class="btn btn-primary" type="button">Start Session</button>
+      <button id="btn-settings" class="btn-text" type="button" aria-haspopup="dialog" aria-expanded="false">
+        Settings
+      </button>
+    </div>
+  </header>
+
+  <!-- Level 3 Drowsy Alarm Bar: Full-width red bar + one large "I'm awake" button, hidden until alarm fires -->
+  <div id="alarm-bar" class="alarm-bar hidden" role="alert" aria-live="assertive">
+    <div class="alarm-bar-content">
+      <div class="alarm-info">
+        <span class="alarm-icon" aria-hidden="true">🚨</span>
+        <div class="alarm-text-wrap">
+          <div class="alarm-title-row">
+            <span class="alarm-label" id="alarm-level-label">ALARM LEVEL 3 · DROWSINESS DETECTED</span>
+            <span id="alarm-muted-pill" class="alarm-muted-pill hidden">Sound muted — alarm will be visual only</span>
+          </div>
+          <span class="alarm-message" id="alarm-message-text">Sustained eye closure detected — tap "I'm awake" to confirm vigilance</span>
+          <span class="alarm-reason" id="alarm-reason-text">Why did this alarm fire? Eyes closed continuously for 1.5s (threshold 1.5s)</span>
+        </div>
+      </div>
+      <button id="btn-im-awake" class="btn-awake" type="button">I'm awake</button>
+    </div>
+  </div>
+
+  <!-- Main layout -->
+  <main id="main-layout">
+
+    <!-- Left column: video placeholder + score card -->
+    <div id="left-pane">
+
+      <!-- Sound Blocked Notification Notice -->
+      <div id="sound-blocked-notice" class="sound-blocked-notice hidden" role="alert">
+        Sound blocked — click Start again
+      </div>
+
+      <!-- Level 1 Distraction Banner (Amber) with "I'm back" button -->
+      <div id="distraction-banner-l1" class="distraction-banner banner-amber hidden" role="alert">
+        <div class="banner-left">
+          <span class="banner-icon" aria-hidden="true">👀</span>
+          <div class="banner-text-wrap">
+            <span class="banner-text" id="banner-text-l1">Distracted — Look back at the screen</span>
+            <span class="banner-reason" id="banner-reason-l1">Why did this alarm fire? Head turned LEFT continuously for 1.2s (threshold 1.2s)</span>
+          </div>
+          <span id="banner-muted-pill-l1" class="banner-muted-pill hidden">Sound muted</span>
+        </div>
+        <button id="btn-im-back-l1" class="btn-im-back" type="button">I'm back</button>
+      </div>
+
+      <!-- Level 2 Distraction Banner (Red) with "I'm back" button -->
+      <div id="distraction-banner-l2" class="distraction-banner banner-red hidden" role="alert">
+        <div class="banner-left">
+          <span class="banner-icon" aria-hidden="true">⚠</span>
+          <div class="banner-text-wrap">
+            <span class="banner-text" id="banner-text-l2">Still distracted — Look back now</span>
+            <span class="banner-reason" id="banner-reason-l2">Why did this alarm fire? Head turned LEFT continuously for 3.0s (threshold 3.0s)</span>
+          </div>
+          <span id="banner-muted-pill-l2" class="banner-muted-pill hidden">Sound muted</span>
+        </div>
+        <button id="btn-im-back-l2" class="btn-im-back btn-im-back-l2" type="button">I'm back</button>
+      </div>
+
+      <!-- Dark video pane placeholder (16:9) with live feed & overlays -->
+      <div class="card video-card">
+        <div class="video-pane-placeholder" id="video-container">
+          <!-- Real webcam stream (mirrored horizontally) -->
+          <video id="webcam" autoplay muted playsinline class="hidden"></video>
+
+          <!-- Canvas overlay for corner-bracket face box (mirrored horizontally) -->
+          <canvas id="canvas-overlay"></canvas>
+
+          <!-- Illustrated Camera View for Demo Mode (Clean illustrated driver feed, dark/teal senior styling) -->
+          <div id="demo-illustration-view" class="demo-illustration-view hidden" aria-label="Simulated Driver Camera Feed">
+            <svg class="demo-avatar-svg" viewBox="0 0 640 360" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <radialGradient id="demoCockpitBg" cx="50%" cy="40%" r="60%">
+                  <stop offset="0%" stop-color="#0F1F35" />
+                  <stop offset="100%" stop-color="#060D18" />
+                </radialGradient>
+                <linearGradient id="demoTorsoGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#1A2D47" />
+                  <stop offset="100%" stop-color="#0D1724" />
+                </linearGradient>
+                <linearGradient id="demoFaceGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#1E334D" />
+                  <stop offset="100%" stop-color="#132235" />
+                </linearGradient>
+              </defs>
+
+              <!-- Cockpit Background -->
+              <rect width="640" height="360" fill="url(#demoCockpitBg)" />
+              
+              <!-- Subtle Perspective Grid -->
+              <line x1="0" y1="180" x2="640" y2="180" stroke="#1E2E44" stroke-width="1" stroke-dasharray="4,6" opacity="0.4" />
+              <line x1="80" y1="360" x2="260" y2="180" stroke="#1E2E44" stroke-width="1" opacity="0.3" />
+              <line x1="560" y1="360" x2="380" y2="180" stroke="#1E2E44" stroke-width="1" opacity="0.3" />
+
+              <!-- Driver Seat Backrest & Headrest -->
+              <path d="M 230 360 L 250 140 C 250 110 390 110 390 140 L 410 360 Z" fill="#0A1320" stroke="#152336" stroke-width="1.5" />
+              <rect x="270" y="80" width="100" height="40" rx="12" fill="#0C1726" stroke="#192A40" stroke-width="1.5" />
+
+              <!-- Operator Torso -->
+              <g id="demo-operator-body">
+                <path d="M 180 360 Q 240 260 320 255 Q 400 260 460 360 Z" fill="url(#demoTorsoGrad)" stroke="#223A59" stroke-width="2" />
+                <path d="M 270 256 L 320 280 L 370 256" stroke="#14B8A6" stroke-width="2" fill="none" opacity="0.4" />
+                <path d="M 300 230 L 300 260 L 340 260 L 340 230 Z" fill="#132235" />
+              </g>
+
+              <!-- Dynamic Operator Head Group -->
+              <g id="demo-operator-head" transform="translate(320, 180)">
+                <ellipse id="demo-head-contour" cx="0" cy="-20" rx="54" ry="68" fill="url(#demoFaceGrad)" stroke="#253E61" stroke-width="2" />
+                <path id="demo-head-cap" d="M -54 -28 C -54 -90 54 -90 54 -28 C 40 -60 -40 -60 -54 -28 Z" fill="#0F1A2A" />
+                <path id="demo-ear-left" d="M -54 -24 C -60 -24 -60 -6 -54 -6 Z" fill="#16273C" />
+                <path id="demo-ear-right" d="M 54 -24 C 60 -24 60 -6 54 -6 Z" fill="#16273C" />
+
+                <!-- Dynamic Facial Features -->
+                <g id="demo-face-features">
+                  <path id="demo-brow-left" d="M -34 -34 Q -22 -40 -10 -34" stroke="#476587" stroke-width="2.5" stroke-linecap="round" fill="none" />
+                  <path id="demo-brow-right" d="M 10 -34 Q 22 -40 34 -34" stroke="#476587" stroke-width="2.5" stroke-linecap="round" fill="none" />
+
+                  <!-- Eyes: Open (Default) -->
+                  <g id="demo-eyes-open">
+                    <ellipse cx="-22" cy="-20" rx="10" ry="6" fill="#0B131F" stroke="#1E334D" stroke-width="1.5" />
+                    <circle id="demo-pupil-left" cx="-22" cy="-20" r="4.5" fill="#14B8A6" />
+                    <circle id="demo-glint-left" cx="-23.5" cy="-21.5" r="1.5" fill="#FFFFFF" />
+
+                    <ellipse cx="22" cy="-20" rx="10" ry="6" fill="#0B131F" stroke="#1E334D" stroke-width="1.5" />
+                    <circle id="demo-pupil-right" cx="22" cy="-20" r="4.5" fill="#14B8A6" />
+                    <circle id="demo-glint-right" cx="20.5" cy="-21.5" r="1.5" fill="#FFFFFF" />
+                  </g>
+
+                  <!-- Eyes: Closed (Drowsy) -->
+                  <g id="demo-eyes-closed" class="hidden">
+                    <path d="M -32 -20 Q -22 -14 -12 -20" stroke="#EF4444" stroke-width="3" stroke-linecap="round" fill="none" />
+                    <path d="M 12 -20 Q 22 -14 32 -20" stroke="#EF4444" stroke-width="3" stroke-linecap="round" fill="none" />
+                    <line x1="-22" y1="-17" x2="-22" y2="-13" stroke="#EF4444" stroke-width="1.5" stroke-linecap="round" />
+                    <line x1="22" y1="-17" x2="22" y2="-13" stroke="#EF4444" stroke-width="1.5" stroke-linecap="round" />
+                  </g>
+
+                  <path id="demo-nose" d="M 0 -22 L 0 -2 L 5 -2" stroke="#253E61" stroke-width="2" stroke-linecap="round" fill="none" />
+                  <path id="demo-mouth" d="M -14 16 Q 0 20 14 16" stroke="#3D5A7D" stroke-width="2.5" stroke-linecap="round" fill="none" />
+                </g>
+              </g>
+
+              <!-- Synthetic HUD Corner Brackets & Target Badge -->
+              <g id="demo-hud-box" transform="translate(320, 180)">
+                <path id="demo-bracket-tl" d="M -70 -70 L -70 -90 L -50 -90" stroke="#22C55E" stroke-width="2.5" fill="none" stroke-linecap="round" />
+                <path id="demo-bracket-tr" d="M 70 -70 L 70 -90 L 50 -90" stroke="#22C55E" stroke-width="2.5" fill="none" stroke-linecap="round" />
+                <path id="demo-bracket-bl" d="M -70 40 L -70 60 L -50 60" stroke="#22C55E" stroke-width="2.5" fill="none" stroke-linecap="round" />
+                <path id="demo-bracket-br" d="M 70 40 L 70 60 L 50 60" stroke="#22C55E" stroke-width="2.5" fill="none" stroke-linecap="round" />
+                <circle id="demo-hud-cross" cx="0" cy="-20" r="3" fill="#22C55E" opacity="0.7" />
+                <rect id="demo-hud-badge-bg" x="-75" y="-110" width="150" height="20" rx="4" fill="#0B1220" stroke="#22C55E" stroke-width="1" />
+                <text id="demo-hud-badge-text" x="0" y="-96" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" font-weight="700" fill="#22C55E" letter-spacing="0.05em">
+                  VIGILANCE LOCK [OK]
+                </text>
+              </g>
+
+              <!-- Viewport Corner Accents -->
+              <g opacity="0.4">
+                <path d="M 20 40 L 20 20 L 40 20" stroke="#14B8A6" stroke-width="2" fill="none" />
+                <path d="M 620 40 L 620 20 L 600 20" stroke="#14B8A6" stroke-width="2" fill="none" />
+                <path d="M 20 320 L 20 340 L 40 340" stroke="#14B8A6" stroke-width="2" fill="none" />
+                <path d="M 620 320 L 620 340 L 600 340" stroke="#14B8A6" stroke-width="2" fill="none" />
+              </g>
+
+              <!-- Synthetic Watermark Label -->
+              <text x="320" y="344" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" font-weight="600" fill="#0F766E" letter-spacing="0.08em">
+                SIMULATED DRIVER FEED · SYNTHETIC AVATAR
+              </text>
+            </svg>
+          </div>
+
+          <!-- Standby graphic in dark placeholder when camera off -->
+          <div class="video-placeholder-graphic" id="placeholder-graphic" aria-hidden="true">
+            <div class="crosshair-circle" id="placeholder-crosshair">
+              <div class="crosshair-inner"></div>
+            </div>
+            <span class="placeholder-caption" id="placeholder-caption-text">VIGILANCE GUARD STANDBY</span>
+            <span class="placeholder-subtext" id="placeholder-subtext">Camera off — click the camera icon to start</span>
+            <div id="video-pane-error-box" class="video-pane-error-box hidden">
+              <div id="video-pane-error-reason" class="video-pane-reason"></div>
+              <div id="video-pane-error-fix" class="video-pane-fix"></div>
+            </div>
+            <button id="btn-placeholder-start" class="btn btn-secondary" style="margin-top: 10px;" type="button">
+              Request Camera Permission
+            </button>
+          </div>
+
+          <!-- Top-left overlay: LIVE + status pill (Video overlay pill MUST NOT move) -->
+          <div class="overlay-group overlay-top-left">
+            <span id="overlay-live-pill" class="live-pill pill-cam-off">
+              <span class="status-dot dot-cam-state" aria-hidden="true"></span><span class="status-icon" aria-hidden="true">⊘</span> CAMERA OFF
+            </span>
+            <span id="video-simulated-pill" class="video-simulated-pill hidden">SIMULATED</span>
+            <span id="face-status-pill" class="status-pill pill-calibrating fixed-width-pill hidden">
+              <span class="status-dot dot-calibrating" aria-hidden="true"></span><span class="status-icon" aria-hidden="true">◌</span> Calibrating
+            </span>
+          </div>
+
+          <!-- Top-right overlay: timer -->
+          <div class="overlay-group overlay-top-right">
+            <span class="overlay-pill overlay-timer">00:00:00</span>
+          </div>
+
+          <!-- Top edge overlay: Head Direction HUD Badge (Clean subtle alignment below status pills) -->
+          <div id="overlay-direction-badge" class="overlay-direction-badge direction-centre hidden">
+            <span id="overlay-direction-arrow" class="direction-arrow">●</span>
+            <span id="overlay-direction-text" class="direction-text">CENTRE</span>
+            <span class="direction-sep">•</span>
+            <span id="overlay-direction-angles" class="direction-angles">Yaw +0° • Pitch +0°</span>
+          </div>
+
+          <!-- Bottom-left overlay: hidden to prevent duplicate direction pill -->
+          <div class="overlay-group overlay-bottom-left hidden">
+            <span id="camera-state-pill" class="status-pill pill-cam-off hidden">
+              <span class="status-dot dot-cam-state" aria-hidden="true"></span><span class="status-icon" aria-hidden="true">⊘</span> Face: Camera off
+            </span>
+          </div>
+
+          <!-- Bottom-right overlay: camera & audio indicator pills -->
+          <div class="overlay-group overlay-bottom-right">
+            <button id="btn-cam-icon" class="overlay-btn-pill" type="button" aria-label="Toggle camera" title="Camera off — click to start">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M23 7l-7 5 7 5V7z"></path>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+              </svg>
+            </button>
+            <button id="btn-sound-icon" class="overlay-btn-pill sound-on" type="button" aria-label="Toggle audio chime" title="Audio chime: ON (Click to mute)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Camera Error Notice Banner (Exact Reason + One Fix) -->
+        <div id="camera-error-banner" class="camera-error-banner hidden" role="alert">
+          <div class="error-banner-content">
+            <span class="error-banner-icon" aria-hidden="true">⚠</span>
+            <div class="error-banner-text">
+              <strong id="camera-error-reason" class="error-reason">Camera permission denied.</strong>
+              <span id="camera-error-fix" class="error-fix">Click the lock / camera icon in your address bar, enable camera access, and try again.</span>
+            </div>
+          </div>
+          <button id="btn-dismiss-error" class="btn-error-dismiss" type="button" aria-label="Dismiss message">✕</button>
+        </div>
+
+        <!-- Live Look-away HUD under video (Updating continuously, Requirements A & 5) -->
+        <div id="lookaway-timer-bar" class="lookaway-timer-bar" aria-live="polite">
+          <span class="hud-item">Yaw: <strong id="val-live-yaw" class="hud-val">--</strong></span>
+          <span class="hud-sep">|</span>
+          <span class="hud-item">Pitch: <strong id="val-live-pitch" class="hud-val">--</strong></span>
+          <span class="hud-sep">|</span>
+          <span class="hud-item">Direction: <strong id="val-live-direction" class="hud-val">--</strong></span>
+          <span class="hud-sep">|</span>
+          <span class="hud-item">Look-away: <strong id="lookaway-timer-val" class="hud-val">--</strong></span>
+          <span id="lookaway-timer-status" class="lookaway-timer-status">--</span>
+          <button id="btn-recalibrate-centre" class="btn-recalibrate" type="button" title="Set current head position as natural Centre">Set Centre</button>
+        </div>
+
+        <!-- Live Eye Openness Meter under video (Fix 1: Bar 0-100% each eye + live closure timer) -->
+        <div id="eye-openness-bar" class="eye-openness-bar" aria-live="polite">
+          <span class="hud-item hud-item-title">Eye Openness:</span>
+          <div class="eye-bar-group" title="Left Eye Openness">
+            <span class="eye-label">L:</span>
+            <div class="eye-bar-track">
+              <div id="eye-bar-fill-l" class="eye-bar-fill" style="width: 100%;"></div>
+            </div>
+            <strong id="val-eye-open-l" class="hud-val">--%</strong>
+          </div>
+          <span class="hud-sep">|</span>
+          <div class="eye-bar-group" title="Right Eye Openness">
+            <span class="eye-label">R:</span>
+            <div class="eye-bar-track">
+              <div id="eye-bar-fill-r" class="eye-bar-fill" style="width: 100%;"></div>
+            </div>
+            <strong id="val-eye-open-r" class="hud-val">--%</strong>
+          </div>
+          <span class="hud-sep">|</span>
+          <span class="hud-item eye-closure-timer-wrap">
+            <span class="eye-closure-icon" aria-hidden="true">👁</span>
+            <span id="eye-closure-timer-label">Eyes closed:</span>
+            <strong id="val-eye-closure-timer" class="hud-val">0.0s / 1.5s</strong>
+          </span>
+          <span id="eye-closure-status" class="eye-closure-status">Open</span>
+        </div>
+
+        <!-- Honest Status Guidance Line -->
+        <div id="camera-guidance-line" class="camera-guidance-line muted-text">
+          Camera offline · Click "Start Camera" to initialize face tracking
+        </div>
+
+        <!-- Muted Debug Row: eyeBlinkLeft, eyeBlinkRight (0=open, 1=closed), jawOpen, gaze -->
+        <div class="debug-row muted-text">
+          <span class="debug-item">eyeBlinkLeft: <strong id="dbg-blink-l" class="debug-val">--</strong></span>
+          <span class="debug-item">eyeBlinkRight: <strong id="dbg-blink-r" class="debug-val">--</strong></span>
+          <span class="debug-item">jawOpen: <strong id="dbg-jaw" class="debug-val">--</strong></span>
+          <span class="debug-item">gaze: <strong id="dbg-gaze" class="debug-val">--</strong></span>
+        </div>
+      </div>
+
+      <!-- Alertness Score Card (Ultrahuman style) -->
+      <div class="card score-card">
+        <div class="score-card-header">
+          <div class="score-label-row">
+            <span class="score-label">ALERTNESS SCORE</span>
+            <span id="score-simulated-badge" class="demo-badge hidden">SIMULATED</span>
+            <span id="score-paused-badge" class="score-paused-badge hidden">Paused</span>
+          </div>
+        </div>
+
+        <div class="score-main-row">
+          <div class="score-left">
+            <!-- Ultrahuman circular score ring (scaled to 130px, 56-72px hero number) -->
+            <div class="score-ring-wrap">
+              <svg class="score-ring-svg" width="96" height="96" viewBox="0 0 96 96" aria-hidden="true">
+                <circle class="score-ring-bg" cx="48" cy="48" r="40" />
+                <circle id="score-ring-circle" class="score-ring-circle" cx="48" cy="48" r="40" />
+              </svg>
+              <div id="alertness-score" class="hero-score">--</div>
+            </div>
+          </div>
+
+          <div class="score-center">
+            <!-- Designed empty state: Icon + state + one fix action (never an empty ring or '--' with no explanation) -->
+            <div id="score-empty-guide" class="score-empty-guide">
+              <div class="guide-icon" aria-hidden="true">◌</div>
+              <div class="guide-text-wrap">
+                <strong class="guide-title">Vigilance Standby</strong>
+                <span class="guide-desc">Position face in frame · Session calibrates natural baseline</span>
+              </div>
+            </div>
+
+            <!-- Score live insight (visible when live) -->
+            <div id="score-live-insight" class="score-live-insight hidden">
+              <strong id="score-insight-heading" class="insight-heading">Optimal Focus</strong>
+              <span id="score-insight-detail" class="insight-detail">Eyes open and head position centered</span>
+            </div>
+
+            <!-- 7-Stage History & One-line legend -->
+            <div class="score-history-block">
+              <div class="history-strip-row">
+                <span class="strip-label">7-STAGE HISTORY</span>
+                <!-- 7-stage history sparkline/strip (fills from real score history) -->
+                <div class="seven-bar-strip" id="seven-bar-strip" aria-label="Alertness score history over time">
+                  <span id="strip-empty-msg" class="strip-empty-msg">No session data yet</span>
+                  <div class="bar-segment hidden" title="No data"></div>
+                  <div class="bar-segment hidden" title="No data"></div>
+                  <div class="bar-segment hidden" title="No data"></div>
+                  <div class="bar-segment hidden" title="No data"></div>
+                  <div class="bar-segment hidden" title="No data"></div>
+                  <div class="bar-segment hidden" title="No data"></div>
+                  <div class="bar-segment hidden" title="No data"></div>
+                </div>
+              </div>
+              <!-- One-line legend directly under the bars -->
+              <div class="strip-legend" id="strip-legend">
+                <span class="legend-text">Last 7 stages • <span class="legend-dot dot-drowsy" aria-hidden="true"></span><span class="legend-lbl-drowsy">Red = Drowsy stage</span> • <span class="legend-dot dot-distracted" aria-hidden="true"></span><span class="legend-lbl-distracted">Amber = Distracted/Watch stage</span> • <span class="legend-dot dot-focused" aria-hidden="true"></span><span class="legend-lbl-focused">Green = Focused stage</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contributors row with 4 tiles (One score truth: Waiting when no face, Calibrating when calibrating, live rating when live) -->
+        <div class="contributors-row">
+          <div class="contributor-tile">
+            <span class="contrib-title">EYES OPEN %</span>
+            <div class="contrib-value" id="val-eyes-open">—</div>
+            <span id="pill-eyes-open" class="status-pill pill-waiting">
+              <span class="status-dot dot-waiting" aria-hidden="true"></span><span class="status-icon" aria-hidden="true">—</span> Waiting
+            </span>
+            <span class="contrib-subline" id="sub-eyes-open">Waiting for face</span>
+          </div>
+
+          <div class="contributor-tile">
+            <span class="contrib-title">HEAD POSE</span>
+            <div class="contrib-value" id="val-head-pose">—</div>
+            <span id="pill-head-pose" class="status-pill pill-waiting">
+              <span class="status-dot dot-waiting" aria-hidden="true"></span><span class="status-icon" aria-hidden="true">—</span> Waiting
+            </span>
+            <span class="contrib-subline" id="sub-head-pose">Waiting for face</span>
+          </div>
+
+          <div class="contributor-tile">
+            <span class="contrib-title">BLINKS/MIN</span>
+            <div class="contrib-value" id="val-blinks-min">—</div>
+            <span id="pill-blinks-min" class="status-pill pill-waiting">
+              <span class="status-dot dot-waiting" aria-hidden="true"></span><span class="status-icon" aria-hidden="true">—</span> Waiting
+            </span>
+            <span class="contrib-subline" id="sub-blinks-min">Waiting for face</span>
+          </div>
+
+          <div class="contributor-tile">
+            <span class="contrib-title">LOOK-AWAY COUNT</span>
+            <div class="contrib-value" id="val-lookaways">—</div>
+            <span id="pill-lookaways" class="status-pill pill-waiting">
+              <span class="status-dot dot-waiting" aria-hidden="true"></span><span class="status-icon" aria-hidden="true">—</span> Waiting
+            </span>
+            <span class="contrib-subline" id="sub-lookaways">Waiting for face</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right column: Session Timeline card -->
+    <aside id="right-pane">
+      <div class="card timeline-card">
+        <div class="timeline-header">
+          <h2 class="card-heading">SESSION TIMELINE</h2>
+        </div>
+
+        <!-- Filter pills: All | Focused | Distracted | Drowsy (Segmented Control) -->
+        <div class="timeline-filter-pills" role="tablist" aria-label="Timeline event filter">
+          <button class="filter-pill active" type="button" role="tab" aria-selected="true" data-filter="all">All <span class="filter-count" id="filter-count-all">(0)</span></button>
+          <button class="filter-pill" type="button" role="tab" aria-selected="false" data-filter="focused">
+            <span class="filter-dot dot-focused" aria-hidden="true"></span>Focused <span class="filter-count" id="filter-count-focused">(0)</span>
+          </button>
+          <button class="filter-pill" type="button" role="tab" aria-selected="false" data-filter="distracted">
+            <span class="filter-dot dot-distracted" aria-hidden="true"></span>Distracted <span class="filter-count" id="filter-count-distracted">(0)</span>
+          </button>
+          <button class="filter-pill" type="button" role="tab" aria-selected="false" data-filter="drowsy">
+            <span class="filter-dot dot-drowsy" aria-hidden="true"></span>Drowsy <span class="filter-count" id="filter-count-drowsy">(0)</span>
+          </button>
+        </div>
+
+        <!-- Offer to clear simulated rows when returning to live mode -->
+        <div id="clear-simulated-banner" class="clear-simulated-banner hidden" role="alert">
+          <div class="clear-simulated-text">
+            <span>Demo finished: <strong id="simulated-rows-count">0</strong> simulated events</span>
+          </div>
+          <div class="clear-simulated-actions">
+            <button id="btn-clear-simulated-rows" class="btn-outline-danger" type="button">Clear simulated rows</button>
+            <button id="btn-dismiss-simulated-banner" class="btn-text-sm" type="button" aria-label="Dismiss and keep rows">Keep</button>
+          </div>
+        </div>
+
+        <!-- Timeline list (max 8 visible + Show all) -->
+        <div class="timeline-list" id="timeline-list"></div>
+
+        <div class="timeline-footer">
+          <button id="btn-timeline-toggle-all" class="btn-text-sm" type="button">Show all</button>
+          <span class="timeline-note">Timeline updates automatically · Newest first</span>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- Always-Visible Fixed Demo Control Bar (Visible ONLY when Demo Mode is ON) -->
+  <div id="demo-controls-bar" class="demo-bottom-bar hidden" role="region" aria-label="Always-Visible Demo Mode Controls">
+    <div class="demo-bottom-bar-inner">
+      <!-- Left: Compact 2-line Stage Info & Description -->
+      <div class="demo-bar-left">
+        <div class="demo-bar-title-row">
+          <span class="demo-badge-solid">SIMULATED DEMO</span>
+          <span class="demo-bar-bullet" aria-hidden="true">•</span>
+          <span id="demo-step-badge" class="demo-step-badge">STAGE 1 OF 4</span>
+          <span class="demo-bar-bullet" aria-hidden="true">•</span>
+          <span id="demo-stage-title" class="demo-stage-title">Focused Operator (Simulated)</span>
+        </div>
+        <div id="demo-stage-desc" class="demo-bar-desc">
+          Operator centered and alert. Alertness score is 100 with optimal vigilance. Click Next to simulate distraction.
+        </div>
+      </div>
+
+      <!-- Right/Center: All interactive buttons in one clean row -->
+      <div class="demo-bar-actions">
+        <button id="btn-demo-prev" class="btn btn-secondary btn-demo-prev" type="button" disabled title="Previous stage (Left Arrow)">
+          ← Previous
+        </button>
+        <button id="btn-demo-next" class="btn btn-primary btn-demo-primary" type="button" title="Next stage (Right Arrow)">
+          Next: Distracted →
+        </button>
+        <button id="btn-demo-replay" class="btn btn-ghost btn-demo-replay" type="button" title="Replay demo from Stage 1">
+          ↻ Replay demo
+        </button>
+        <button id="btn-demo-reset" class="btn btn-ghost btn-demo-reset" type="button" title="Reset demo state">
+          Reset demo
+        </button>
+        <button id="btn-demo-exit" class="btn btn-secondary btn-demo-exit" type="button" title="Back to Live Demo (Esc)">
+          ✕ Back to Live Demo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pre-shift Check Modal (One dark card, one primary action: Begin check) -->
+  <div id="preshift-backdrop" class="popover-backdrop hidden" aria-hidden="true"></div>
+
+  <div id="preshift-modal" class="preshift-modal-overlay hidden" role="dialog" aria-labelledby="preshift-heading" aria-modal="true">
+    <div class="card preshift-card">
+      <div class="preshift-header">
+        <div class="preshift-header-top">
+          <h2 id="preshift-heading" class="preshift-title">Ready for your shift?</h2>
+          <button id="btn-close-preshift" class="btn-icon-close" type="button" aria-label="Close pre-shift check">✕</button>
+        </div>
+        <p class="preshift-desc">Pre-shift check · 30 seconds · Camera + face + lighting</p>
+      </div>
+
+      <!-- Pre-shift Initial State -->
+      <div id="preshift-start-view" class="preshift-body">
+        <div class="preshift-info-box">
+          <span class="info-pill">Self-Assessment Guard</span>
+          <p class="info-text">
+            Verify camera connectivity, ambient lighting, and facial alignment before operating vehicles or control-room equipment.
+          </p>
+        </div>
+        <div class="preshift-action-row">
+          <!-- One white pill primary action -->
+          <button id="btn-begin-check" class="btn-white-pill" type="button">Begin check</button>
+          <!-- Small "Settings" text link only -->
+          <button id="link-preshift-settings" class="small-text-link" type="button">Settings</button>
+        </div>
+      </div>
+
+      <!-- Pre-shift Active Check View: "Step x of 4" + thin progress bar + seconds remaining + ticked rows -->
+      <div id="preshift-active-view" class="preshift-body hidden">
+        <div class="preshift-step-row">
+          <span id="preshift-step-label" class="step-label">Step 1 of 4</span>
+          <!-- Seconds remaining (never a spinner with no count) -->
+          <span id="preshift-countdown" class="seconds-remaining">30s remaining</span>
+        </div>
+
+        <!-- Thin progress bar -->
+        <div class="thin-progress-wrap">
+          <div id="preshift-progress-bar" class="thin-progress-bar"></div>
+        </div>
+
+        <!-- Ticked rows: each tick 200ms -->
+        <div class="ticked-rows-list">
+          <div class="ticked-row" id="tick-row-1">
+            <span class="tick-icon">○</span>
+            <span class="tick-text">Camera found</span>
+          </div>
+          <div class="ticked-row" id="tick-row-2">
+            <span class="tick-icon">○</span>
+            <span class="tick-text">Face in frame</span>
+          </div>
+          <div class="ticked-row" id="tick-row-3">
+            <span class="tick-icon">○</span>
+            <span class="tick-text">Lighting OK</span>
+          </div>
+          <div class="ticked-row" id="tick-row-4">
+            <span class="tick-icon">○</span>
+            <span class="tick-text">Baseline captured</span>
+          </div>
+        </div>
+
+        <!-- Result Section: FIT / CAUTION / NOT FIT (hidden until check finishes) -->
+        <div id="preshift-result-section" class="preshift-result-section hidden">
+          <div class="result-badge-wrap">
+            <span id="preshift-result-badge" class="result-badge result-fit">FIT</span>
+          </div>
+
+          <!-- 4 Step Results Summary -->
+          <div class="preshift-steps-summary" id="preshift-steps-summary">
+            <div class="step-summary-row" id="preshift-res-step-1">
+              <span class="step-res-icon pass">✓</span>
+              <span class="step-res-name">Camera connection</span>
+              <span class="step-res-status pass">Passed</span>
+            </div>
+            <div class="step-summary-row" id="preshift-res-step-2">
+              <span class="step-res-icon pass">✓</span>
+              <span class="step-res-name">Face in frame</span>
+              <span class="step-res-status pass">Passed</span>
+            </div>
+            <div class="step-summary-row" id="preshift-res-step-3">
+              <span class="step-res-icon pass">✓</span>
+              <span class="step-res-name">Ambient lighting</span>
+              <span class="step-res-status pass">Passed</span>
+            </div>
+            <div class="step-summary-row" id="preshift-res-step-4">
+              <span class="step-res-icon pass">✓</span>
+              <span class="step-res-name">Baseline captured</span>
+              <span class="step-res-status pass">Passed</span>
+            </div>
+          </div>
+
+          <p class="result-verdict-line">
+            Prototype indicator, not a medical verdict or permission to drive
+          </p>
+          <!-- "Start session" only when all 4 tick -->
+          <button id="btn-start-session-preshift" class="btn btn-primary full-width" type="button" disabled>
+            Start session
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings right-side popover (never a second page) -->
+  <div id="settings-backdrop" class="popover-backdrop hidden" aria-hidden="true"></div>
+
+  <aside id="settings-popover" class="settings-popover hidden" role="dialog" aria-labelledby="settings-heading" aria-modal="true">
+    <div class="settings-header">
+      <h2 id="settings-heading" class="settings-title">SETTINGS</h2>
+      <button id="btn-close-settings" class="btn-icon-close" type="button" aria-label="Close settings popover">✕</button>
+    </div>
+
+    <div class="settings-body">
+      <!-- 1. Sensitivity Presets (Sensitive / Balanced / Relaxed / Custom) -->
+      <div class="setting-item">
+        <div class="setting-item-header">
+          <div class="setting-label-row">
+            <label class="setting-label">SENSITIVITY PRESETS</label>
+            <span class="proto-badge" id="preset-badge">Balanced</span>
+          </div>
+        </div>
+        <div class="preset-pill-group" role="group" aria-label="Sensitivity Presets">
+          <button type="button" class="preset-btn" data-preset="sensitive" id="btn-preset-sensitive">
+            <span class="preset-name">Sensitive</span>
+            <span class="preset-sub">1.0s eye · 2.0s look</span>
+          </button>
+          <button type="button" class="preset-btn active" data-preset="balanced" id="btn-preset-balanced">
+            <span class="preset-name">Balanced</span>
+            <span class="preset-sub">1.5s eye · 3.0s look</span>
+          </button>
+          <button type="button" class="preset-btn" data-preset="relaxed" id="btn-preset-relaxed">
+            <span class="preset-name">Relaxed</span>
+            <span class="preset-sub">2.0s eye · 4.0s look</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 2. Drowsy Trigger Slider (Level 3 threshold) -->
+      <div class="setting-item">
+        <div class="setting-item-header">
+          <div class="setting-label-row">
+            <label class="setting-label" for="slider-drowsy-trigger">DROWSY EYE CLOSURE TRIGGER</label>
+            <span class="proto-badge">Prototype threshold</span>
+          </div>
+          <span id="drowsy-trigger-display" class="setting-value-badge">1.5s</span>
+        </div>
+        <input id="slider-drowsy-trigger" class="settings-range" type="range" min="1.0" max="3.0" value="1.5" step="0.1" />
+        <div class="range-ticks">
+          <span>1.0s (Sensitive)</span>
+          <span>1.5s (Balanced)</span>
+          <span>3.0s (Relaxed)</span>
+        </div>
+      </div>
+
+      <!-- 3. Look-away Distraction Trigger Slider -->
+      <div class="setting-item">
+        <div class="setting-item-header">
+          <div class="setting-label-row">
+            <label class="setting-label" for="slider-lookaway-trigger">LOOK-AWAY DISTRACTION TRIGGER</label>
+            <span class="proto-badge">Prototype threshold</span>
+          </div>
+          <span id="lookaway-trigger-display" class="setting-value-badge">3.0s</span>
+        </div>
+        <input id="slider-lookaway-trigger" class="settings-range" type="range" min="1.5" max="5.0" value="3.0" step="0.1" />
+        <div class="range-ticks">
+          <span>2.0s (Sensitive)</span>
+          <span>3.0s (Balanced)</span>
+          <span>4.0s (Relaxed)</span>
+        </div>
+      </div>
+
+      <!-- 4. Alarm Audio Preview (Level-1 -> Level-2 -> Level-3 sequence) -->
+      <div class="setting-item">
+        <div class="setting-item-header">
+          <div class="setting-label-row">
+            <label class="setting-label">ALARM PREVIEW SEQUENCE</label>
+            <span class="proto-badge">Audio & Visual Check</span>
+          </div>
+        </div>
+        <p class="muted-text" style="font-size: 11.5px; margin-bottom: 8px; line-height: 1.4;">
+          Plays Level 1 (amber beep), Level 2 (escalating alert), and Level 3 (drowsy chime) in sequence without penalizing score or logging session events.
+        </p>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <button id="btn-alarm-preview" class="btn btn-secondary btn-sm" type="button" style="padding: 6px 14px; font-size: 12px;">
+            ▶ Play alarm sequence (L1 → L2 → L3)
+          </button>
+          <span id="preview-status-pill" class="badge-status-subtle hidden">Playing Level 1...</span>
+        </div>
+      </div>
+
+      <!-- 5. Alarm sound on/off & volume -->
+      <div class="setting-item">
+        <div class="setting-toggle-row">
+          <div class="setting-text-group">
+            <span class="setting-label">ALARM SOUND</span>
+            <span class="setting-subtext">Web Audio chimes for drowsiness and distraction</span>
+          </div>
+          <button id="toggle-alarm-sound" class="toggle-switch active" type="button" role="switch" aria-checked="true">
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
+        <div style="margin-top: 10px;">
+          <label class="setting-label" for="slider-drowsy-volume" style="font-size: 11px;">
+            DROWSY SOUND VOLUME: <span id="drowsy-volume-display">100%</span>
+          </label>
+          <input id="slider-drowsy-volume" class="settings-range" type="range" min="10" max="100" value="100" step="5" />
+        </div>
+        <div style="margin-top: 10px;">
+          <label class="setting-label" for="slider-distraction-volume" style="font-size: 11px;">
+            DISTRACTION SOUND VOLUME: <span id="distraction-volume-display">80%</span>
+          </label>
+          <input id="slider-distraction-volume" class="settings-range" type="range" min="10" max="100" value="80" step="5" />
+        </div>
+        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button id="btn-test-sound" class="btn btn-secondary btn-sm" type="button" style="padding: 6px 12px; font-size: 12px;">Test drowsy sound</button>
+          <button id="btn-test-distraction-sound" class="btn btn-secondary btn-sm" type="button" style="padding: 6px 12px; font-size: 12px;">Test distraction sound</button>
+        </div>
+      </div>
+
+      <!-- 6. Camera choice -->
+      <div class="setting-item">
+        <label class="setting-label" for="select-camera">CAMERA DEVICE</label>
+        <select id="select-camera" class="settings-select">
+          <option value="">Default Camera</option>
+        </select>
+        <span class="muted-text" style="font-size: 11px;">Selecting a camera immediately switches the live feed.</span>
+      </div>
+
+      <!-- 7. Keyboard Shortcuts (Rule 6) -->
+      <div class="setting-item proto-summary-box">
+        <span class="setting-label">KEYBOARD SHORTCUTS</span>
+        <ul class="proto-list muted-text" style="margin-top: 8px;">
+          <li><kbd class="kbd-chip">Space</kbd> <strong>Acknowledge alarm:</strong> Clears active distraction or Level 3 drowsy alarm</li>
+          <li><kbd class="kbd-chip">D</kbd> <strong>Demo mode:</strong> Toggle simulation mode on / off</li>
+          <li><kbd class="kbd-chip">S</kbd> <strong>Start / Stop session:</strong> Toggle vigilance monitoring session</li>
+        </ul>
+        <span class="muted-text" style="font-size: 10.5px; display: block; margin-top: 4px;">Shortcuts are ignored while typing in text fields or dialog forms.</span>
+      </div>
+
+      <!-- 8. Prototype thresholds breakdown list -->
+      <div class="setting-item proto-summary-box">
+        <span class="setting-label">PROTOTYPE THRESHOLDS (NOT CLINICAL)</span>
+        <ul class="proto-list muted-text">
+          <li><strong>Normal blink:</strong> 100–400ms (not counted as drowsy)</li>
+          <li><strong>Distraction trigger:</strong> Yaw &gt; 25° OR Pitch &gt; 20° (sustained)</li>
+          <li><strong>Distraction exit:</strong> Yaw &lt; 12° AND Pitch &lt; 10° for &ge; 0.8s</li>
+          <li><strong>Distracted Level 1:</strong> &ge; 1.2s continuous look-away (min 3s sound)</li>
+          <li><strong>Distracted Level 2:</strong> &ge; 3.0s continuous look-away (escalating loop)</li>
+          <li><strong>Lost-face hold:</strong> 2.0s hold before pausing (never defaults to Focused)</li>
+          <li><strong>Level 3 drowsy:</strong> &gt; 1.5s sustained eye closure (adjustable)</li>
+          <li><strong>Yawn detection:</strong> &gt; 1.5s sustained jaw opening</li>
+        </ul>
+      </div>
+
+      <!-- 9. Alertness Score Bands -->
+      <div class="setting-item proto-summary-box">
+        <span class="setting-label">ALERTNESS SCORE BANDS</span>
+        <ul class="proto-list muted-text">
+          <li><strong style="color: var(--status-focused);">80–100:</strong> Optimal Vigilance</li>
+          <li><strong style="color: var(--status-distracted);">60–79:</strong> Good / Watch</li>
+          <li><strong style="color: #F97316;">40–59:</strong> Low Alertness</li>
+          <li><strong style="color: var(--status-drowsy);">Below 40:</strong> Critical</li>
+        </ul>
+      </div>
+
+      <!-- 10. Prototype score rules (Rule 4) -->
+      <div class="setting-item proto-summary-box">
+        <span class="setting-label">PROTOTYPE SCORE RULES</span>
+        <ul class="proto-list muted-text">
+          <li><strong>Drowsy event:</strong> -40 points</li>
+          <li><strong>Distraction event:</strong> -15 points</li>
+          <li><strong>Yawn event:</strong> -10 points</li>
+          <li><strong>Continuously focused:</strong> +2 / sec (clamped 0–100)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="settings-footer">
+      <button id="btn-done-settings" class="btn btn-secondary full-width" type="button">Close Settings</button>
+    </div>
+  </aside>
+
+  <!-- Session Summary Modal (Rule 5: duration, event counts, lowest score) -->
+  <div id="summary-backdrop" class="popover-backdrop hidden" aria-hidden="true"></div>
+
+  <div id="summary-modal" class="preshift-modal-overlay hidden" role="dialog" aria-labelledby="summary-heading" aria-modal="true">
+    <div class="card summary-card">
+      <div class="summary-header">
+        <h2 id="summary-heading" class="summary-title">SESSION SUMMARY</h2>
+        <button id="btn-close-summary" class="btn-icon-close" type="button" aria-label="Close summary">✕</button>
+      </div>
+      <div class="summary-body">
+        <div class="summary-stat-grid">
+          <div class="summary-stat-box">
+            <span class="stat-label">SESSION DURATION</span>
+            <span id="summary-duration" class="stat-value">00:00:00</span>
+          </div>
+          <div class="summary-stat-box">
+            <span class="stat-label">LOWEST SCORE</span>
+            <span id="summary-lowest-score" class="stat-value">--</span>
+          </div>
+          <div class="summary-stat-box">
+            <span class="stat-label">DROWSY EVENTS</span>
+            <span id="summary-drowsy-count" class="stat-value stat-drowsy">0</span>
+          </div>
+          <div class="summary-stat-box">
+            <span class="stat-label">DISTRACTION EVENTS</span>
+            <span id="summary-distraction-count" class="stat-value stat-distracted">0</span>
+          </div>
+          <div class="summary-stat-box">
+            <span class="stat-label">YAWN EVENTS</span>
+            <span id="summary-yawn-count" class="stat-value">0</span>
+          </div>
+          <div class="summary-stat-box">
+            <span class="stat-label">TOTAL LOGGED</span>
+            <span id="summary-total-events" class="stat-value">0</span>
+          </div>
+        </div>
+        <p class="summary-disclaimer muted-text">
+          Prototype operational report. Not a medical verdict or fitness-to-drive certificate.
+        </p>
+        <div class="summary-action-row">
+          <button id="btn-download-csv" class="btn btn-secondary" type="button">Download session report (.csv)</button>
+          <button id="btn-reset-from-summary" class="btn btn-secondary" type="button">Reset Timeline</button>
+          <button id="btn-done-summary" class="btn btn-primary" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timeline Event Detail Modal / Popover (Rule 4) -->
+  <div id="timeline-detail-backdrop" class="popover-backdrop hidden" aria-hidden="true"></div>
+  <div id="timeline-detail-modal" class="preshift-modal-overlay hidden" role="dialog" aria-labelledby="timeline-detail-title" aria-modal="true">
+    <div class="card timeline-detail-card">
+      <div class="summary-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span id="detail-category-pill" class="status-pill pill-distracted tl-pill">
+            <span class="status-dot dot-distracted" id="detail-category-dot" aria-hidden="true"></span>
+            <span class="status-icon" id="detail-category-icon" aria-hidden="true">⚠</span>
+            <span id="detail-category-text">Distracted</span>
+          </span>
+          <h2 id="timeline-detail-title" class="summary-title" style="margin: 0; font-size: 14px;">EVENT DETAILS</h2>
+        </div>
+        <button id="btn-close-timeline-detail" class="btn-icon-close" type="button" aria-label="Close details">✕</button>
+      </div>
+      <div class="timeline-detail-body">
+        <div class="detail-event-box">
+          <span class="detail-field-label">EVENT DESCRIPTION</span>
+          <div id="detail-event-text" class="detail-event-title">Distracted — Looking LEFT</div>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-grid-item">
+            <span class="detail-field-label">START TIME</span>
+            <span id="detail-start-time" class="detail-field-value">00:01:23</span>
+          </div>
+          <div class="detail-grid-item">
+            <span class="detail-field-label">END TIME</span>
+            <span id="detail-end-time" class="detail-field-value">00:01:27</span>
+          </div>
+          <div class="detail-grid-item">
+            <span class="detail-field-label">DURATION</span>
+            <span id="detail-duration" class="detail-field-value">4.2s</span>
+          </div>
+          <div class="detail-grid-item">
+            <span class="detail-field-label">SCORE IMPACT</span>
+            <span id="detail-score-impact" class="detail-field-value">100 → 85 (-15 pts)</span>
+          </div>
+          <div class="detail-grid-item" style="grid-column: span 2;">
+            <span class="detail-field-label">OPERATOR ACKNOWLEDGMENT</span>
+            <span id="detail-ack-time" class="detail-field-value">Acknowledged in 1.4s (via "I'm back")</span>
+          </div>
+        </div>
+        <div class="detail-actions">
+          <button id="btn-close-detail-action" class="btn btn-secondary full-width" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

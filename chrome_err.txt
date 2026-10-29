@@ -1,0 +1,12 @@
+[30992:25324:1028/120745.470:WARNING:net\dns\dns_config_service_win.cc:607] Failed to read DnsConfig.
+[30992:10912:1028/120745.471:ERROR:chrome\browser\first_run\upgrade_util_win.cc:109] CoCreate GoogleUpdate3WebSystemClass failed; hr = 80070005
+[30992:37172:1028/120745.482:ERROR:chrome\installer\util\google_update_settings_win.cc:270] Failed opening key Software\Google\Update\ClientStateMedium\{8A69D345-D564-463c-AFF1-A69D9E530F96} to set usagestats; result: 5
+[30992:28324:1028/120745.483:INFO:components\enterprise\browser\controller\chrome_browser_cloud_management_controller.cc:241] No machine level policy manager exists.
+[30992:28324:1028/120745.640:WARNING:chrome\browser\extensions\external_registry_loader_win.cc:247] Error observing HKCU: Access is denied. (0x5)
+[30992:28324:1028/120745.834:INFO:CONSOLE:0] "Access to script at 'file:///C:/Users/Yash/ymca%20project/app.js' from origin 'null' has been blocked by CORS policy: Cross origin requests are only supported for protocol schemes: chrome, chrome-experimental-site-token-provider, chrome-extension, chrome-untrusted, data, http, https, isolated-app.", source: file:///C:/Users/Yash/ymca%20project/index.html (0)
+[30992:37172:1028/120747.732:ERROR:components\system_cpu\cpu_probe_win.cc:112] PdhAddEnglishCounter failed for '\Hyper-V Hypervisor Logical Processor(_Total)\% Total Run Time': Error (0x13D) while retrieving error. (0xC0000BC8)
+[30992:28976:1028/120747.732:ERROR:components\system_cpu\cpu_probe_win.cc:112] PdhAddEnglishCounter failed for '\Hyper-V Hypervisor Logical Processor(_Total)\% Total Run Time': Error (0x13D) while retrieving error. (0xC0000BC8)
+[30992:28324:1028/120747.735:ERROR:components\device_event_log\device_event_log_impl.cc:211] [12:07:47.735] USB: usb_device_win.cc:66 Failed to open \\?\usb#root_hub30#5&1b626489&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}: Access is denied. (0x5)
+[30992:28324:1028/120747.735:ERROR:components\device_event_log\device_event_log_impl.cc:211] [12:07:47.735] USB: usb_device_win.cc:66 Failed to open \\?\usb#root_hub30#5&2c93cdf&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}: Access is denied. (0x5)
+[30992:28324:1028/120747.736:ERROR:components\device_event_log\device_event_log_impl.cc:211] [12:07:47.736] USB: usb_device_win.cc:66 Failed to open \\?\usb#root_hub30#5&1b626489&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}: Access is denied. (0x5)
+[30992:37172:1028/120750.491:WARNING:net\dns\dns_config_service_win.cc:607] Failed to read DnsConfig.
